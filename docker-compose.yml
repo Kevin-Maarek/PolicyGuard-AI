@@ -1,0 +1,88 @@
+name: policyguard
+services:
+  sas-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: sas
+      POSTGRES_PASSWORD: ${SAS_DB_PASSWORD:-local_sas_demo}
+      POSTGRES_DB: sas
+    volumes: [sas_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U sas -d sas"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  policy-db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: policyguard
+      POSTGRES_PASSWORD: ${POLICY_DB_PASSWORD:-local_policy_demo}
+      POSTGRES_DB: policyguard
+    volumes: [policy_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U policyguard -d policyguard"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  sas-mock:
+    build: .
+    image: policyguard-backend:local
+    environment:
+      SERVICE: sas
+      DATABASE_URL: postgresql+psycopg://sas:${SAS_DB_PASSWORD:-local_sas_demo}@sas-db:5432/sas
+      MOCK_ADMIN_TOKEN: ${MOCK_ADMIN_TOKEN:-local_simulator_only}
+    command: [sh, -c, "python -m apps.sas_mock.seed && uvicorn apps.sas_mock.main:app --host 0.0.0.0 --port 8000"]
+    ports: ["127.0.0.1:8011:8000"]
+    depends_on:
+      sas-db: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+  policyguard-api:
+    build: .
+    image: policyguard-backend:local
+    environment:
+      SERVICE: policyguard
+      DATABASE_URL: postgresql+psycopg://policyguard:${POLICY_DB_PASSWORD:-local_policy_demo}@policy-db:5432/policyguard
+      SAS_BASE_URL: ${SAS_BASE_URL:-http://sas-mock:8000}
+      SAS_TARGET: ${SAS_TARGET:-simulator}
+      SAS_ACCESS_TOKEN: ${SAS_ACCESS_TOKEN:-}
+      SAS_WRITE_ENABLED: ${SAS_WRITE_ENABLED:-true}
+      MOCK_ADMIN_TOKEN: ${MOCK_ADMIN_TOKEN:-local_simulator_only}
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      LLM_MODEL: ${LLM_MODEL:-qwen3.8:latest}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      OLLAMA_CHAT_FORMAT: ${OLLAMA_CHAT_FORMAT:-auto}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-ollama}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-qwen3-embedding:latest}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-http://host.docker.internal:11434}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1024}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-600}
+      SYNC_INTERVAL_SECONDS: ${SYNC_INTERVAL_SECONDS:-300}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-15}
+    command: [uvicorn, apps.policyguard.main:app, --host, 0.0.0.0, --port, "8000"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    ports: ["127.0.0.1:8010:8000"]
+    depends_on:
+      policy-db: {condition: service_healthy}
+      sas-mock: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+  frontend:
+    build: apps/frontend
+    environment:
+      MOCK_ADMIN_TOKEN: ${MOCK_ADMIN_TOKEN:-local_simulator_only}
+      NGINX_ENVSUBST_FILTER: ^MOCK_ADMIN_TOKEN$
+    ports: ["127.0.0.1:5173:80"]
+    depends_on:
+      policyguard-api: {condition: service_healthy}
+volumes:
+  sas_data:
+  policy_data:

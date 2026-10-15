@@ -1,0 +1,19 @@
+[project]
+name = "policyguard"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "pydantic>=2.10,<3",
+  "pydantic-settings>=2.7,<3", "sqlalchemy>=2.0,<2.1",
+  "psycopg[binary,pool]>=3.2,<4", "httpx>=0.28,<1", "pgvector>=0.3,<1",
+  "langgraph>=1.0,<2", "langgraph-checkpoint-postgres>=3,<4",
+  "rank-bm25==0.2.2", "numpy>=2,<3", "pymupdf>=1.25,<2",
+  "python-docx>=1.1,<2", "python-multipart>=0.0.20,<1", "z3-solver>=4.13,<5"
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
